@@ -14,6 +14,14 @@ ENV = SupportTicketTriageEnv(max_steps=8)
 
 class ResetRequest(BaseModel):
     task_id: Optional[str] = "easy_refund"
+    
+@app.get("/")
+def root():
+    return {
+        "message": "Support Ticket Triage OpenEnv is running.",
+        "docs": "/docs",
+        "health": "/health"
+    }
 
 @app.get("/health")
 def health():
