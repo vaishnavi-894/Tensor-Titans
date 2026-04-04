@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
+from scripts.baseline_heuristic import run_task
 
 from app.env import SupportTicketTriageEnv
 from app.models import Action
@@ -68,3 +69,10 @@ def grader():
     state_obj = ENV.state()
     task = TASKS[state_obj.task_id]
     return grade_task(task, state_obj)
+
+@app.get("/baseline")
+def baseline():
+    task_ids = ["easy_refund", "medium_bug", "hard_security"]
+    results = [run_task(tid) for tid in task_ids]
+    avg = sum(r["final_score"] for r in results) / len(results)
+    return {"results": results, "average_score": avg}
