@@ -1,17 +1,20 @@
 import os
 import json
 import re
+from typing import List, Optional
+
 from openai import OpenAI
 import requests
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://127.0.0.1:8000")
 
 MAX_STEPS = 8
-TEMPERATURE = 0.0  # more deterministic
+TEMPERATURE = 0.0
 TASK_IDS = ["easy_refund", "medium_bug", "hard_security"]
+BENCHMARK = "support_ticket_triage"
 
 SYSTEM_PROMPT = """
 You are an AI agent operating a customer support ticket triage environment.
@@ -68,7 +71,25 @@ Output:
 Ticket: "Unauthorized login detected"
 Output:
 {"action_type":"tag_issue","value":"security_compromise"}
-"""
+""".strip()
+
+
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
+    )
+
+
+def log_end(success: bool, steps: int, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
 
 
 def build_prompt(obs: dict) -> str:
@@ -114,11 +135,11 @@ Guidance:
 {guidance}
 
 Return ONLY JSON with keys action_type and value.
-If no value needed, use null.
-"""
+If no value is needed, use null.
+""".strip()
 
 
-def call_model(client, obs: dict) -> dict:
+def call_model(client: OpenAI, obs: dict) -> dict:
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": build_prompt(obs)},
@@ -132,17 +153,14 @@ def call_model(client, obs: dict) -> dict:
             max_tokens=120,
         )
 
-        text = response.choices[0].message.content.strip()
-        print("\nMODEL OUTPUT:", text)
+        text = (response.choices[0].message.content or "").strip()
 
-        # extract JSON safely
         json_match = re.search(r"\{.*\}", text, re.DOTALL)
         if not json_match:
             raise ValueError("No JSON found")
 
         action = json.loads(json_match.group(0))
 
-        # validate action
         allowed_actions = {
             "inspect_policy",
             "tag_issue",
@@ -163,51 +181,74 @@ def call_model(client, obs: dict) -> dict:
         if "value" not in action:
             action["value"] = None
 
-        print("ACTION SENT:", action)
-
         return action
 
-    except Exception as e:
-        print("ERROR:", e)
+    except Exception:
         return {"action_type": "inspect_policy", "value": None}
 
 
-def run_task(client, task_id: str):
-    print(f"\n===== RUNNING TASK: {task_id} =====")
+def action_to_str(action: dict) -> str:
+    return json.dumps(action, ensure_ascii=False, separators=(",", ":"))
 
-    obs = requests.post(f"{ENV_BASE_URL}/reset", json={"task_id": task_id}).json()
 
-    for step in range(MAX_STEPS):
-        print(f"\n--- STEP {step} ---")
+def run_task(client: OpenAI, task_id: str) -> dict:
+    rewards: List[float] = []
+    steps_taken = 0
+    success = False
 
-        action = call_model(client, obs)
+    log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
 
-        result = requests.post(f"{ENV_BASE_URL}/step", json=action).json()
+    try:
+        obs = requests.post(f"{ENV_BASE_URL}/reset", json={"task_id": task_id}).json()
 
-        obs = result["observation"]
+        for step in range(1, MAX_STEPS + 1):
+            action = call_model(client, obs)
+            action_str = action_to_str(action)
 
-        print("REWARD:", result["reward"]["value"], "| DONE:", result["done"])
+            result = requests.post(f"{ENV_BASE_URL}/step", json=action).json()
 
-        if result["done"]:
-            break
+            obs = result["observation"]
+            reward = float(result["reward"]["value"])
+            done = bool(result["done"])
+            error = None
 
-    grader = requests.get(f"{ENV_BASE_URL}/grader").json()
+            rewards.append(reward)
+            steps_taken = step
 
-    return {
-        "task_id": task_id,
-        "score": grader["score"],
-        "grader": grader,
-    }
+            log_step(
+                step=step,
+                action=action_str,
+                reward=reward,
+                done=done,
+                error=error,
+            )
+
+            if done:
+                break
+
+        grader = requests.get(f"{ENV_BASE_URL}/grader").json()
+        score = float(grader["score"])
+        success = score >= 0.5
+
+        return {
+            "task_id": task_id,
+            "score": score,
+            "grader": grader,
+        }
+
+    finally:
+        log_end(success=success, steps=steps_taken, rewards=rewards)
 
 
 def main():
+    if not HF_TOKEN:
+        raise ValueError("HF_TOKEN environment variable is required")
+
     client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
     results = [run_task(client, tid) for tid in TASK_IDS]
-
     avg = sum(r["score"] for r in results) / len(results)
 
-    print("\nFINAL RESULT:")
     print(json.dumps({"results": results, "average_score": avg}, indent=2))
 
 
