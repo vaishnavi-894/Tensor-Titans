@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
 from scripts.baseline_heuristic import run_task
+from fastapi import Body
 
 from app.env import SupportTicketTriageEnv
 from app.models import Action
@@ -53,10 +54,11 @@ def tasks():
         }
     }
 
+
 @app.post("/reset")
-def reset(req: Optional[ResetRequest] = None):
-    req = req or ResetRequest()
-    obs = ENV.reset(task_id=req.task_id)
+def reset(req: Optional[ResetRequest] = Body(default=None)):
+    task_id = req.task_id if req else "easy_refund"
+    obs = ENV.reset(task_id=task_id)
     return obs.model_dump()
 
 @app.post("/step")
