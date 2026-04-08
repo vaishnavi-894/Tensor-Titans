@@ -11,8 +11,12 @@ dependencies = [
     "requests",
     "openai",
     "python-dotenv",
-    "typing-extensions"
+    "typing-extensions",
+    "openenv-core>=0.2.0"
 ]
+
+[project.scripts]
+server = "app.run_server:main"
 
 [build-system]
 requires = ["setuptools>=61.0"]
