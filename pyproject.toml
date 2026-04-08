@@ -1,0 +1,19 @@
+[project]
+name = "support-ticket-triage-openenv"
+version = "0.1.0"
+description = "Real-world customer support ticket triage environment for RL and agent evaluation."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "requests",
+    "openai",
+    "python-dotenv",
+    "typing-extensions"
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
