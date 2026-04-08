@@ -246,10 +246,8 @@ def main():
 
     client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
-    results = [run_task(client, tid) for tid in TASK_IDS]
-    avg = sum(r["score"] for r in results) / len(results)
-
-    print(json.dumps({"results": results, "average_score": avg}, indent=2))
+    for tid in TASK_IDS:
+        run_task(client, tid)
 
 
 if __name__ == "__main__":
