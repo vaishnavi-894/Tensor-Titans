@@ -3,13 +3,16 @@ import json
 import re
 from typing import List, Optional
 
+import time
 from openai import OpenAI
 import requests
+import subprocess
+
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN = os.getenv("HF_TOKEN")
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://127.0.0.1:8000")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://127.0.0.1:7860")
 
 MAX_STEPS = 8
 TEMPERATURE = 0.0
@@ -191,6 +194,26 @@ def action_to_str(action: dict) -> str:
     return json.dumps(action, ensure_ascii=False, separators=(",", ":"))
 
 
+def start_server():
+    return subprocess.Popen(
+        ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+def wait_for_server():
+    for _ in range(15):
+        try:
+            r = requests.get(f"{ENV_BASE_URL}/health", timeout=2)
+            if r.status_code == 200:
+                return
+        except:
+            pass
+        time.sleep(2)
+    raise Exception("Server not reachable")
+
+# ------------------ RUN TASK ------------------
+
 def run_task(client: OpenAI, task_id: str) -> dict:
     rewards: List[float] = []
     steps_taken = 0
@@ -199,18 +222,39 @@ def run_task(client: OpenAI, task_id: str) -> dict:
     log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
 
     try:
-        obs = requests.post(f"{ENV_BASE_URL}/reset", json={"task_id": task_id}).json()
+        # ✅ SAFE RESET
+        try:
+            response = requests.post(
+                f"{ENV_BASE_URL}/reset",
+                json={"task_id": task_id},
+                timeout=5
+            )
+            response.raise_for_status()
+            obs = response.json()
+        except Exception as e:
+            print("RESET ERROR:", str(e), flush=True)
+            return {"task_id": task_id, "score": 0, "error": str(e)}
 
         for step in range(1, MAX_STEPS + 1):
             action = call_model(client, obs)
             action_str = action_to_str(action)
 
-            result = requests.post(f"{ENV_BASE_URL}/step", json=action).json()
+            # ✅ SAFE STEP
+            try:
+                response = requests.post(
+                    f"{ENV_BASE_URL}/step",
+                    json=action,
+                    timeout=5
+                )
+                response.raise_for_status()
+                result = response.json()
+            except Exception as e:
+                print("STEP ERROR:", str(e), flush=True)
+                break
 
-            obs = result["observation"]
-            reward = float(result["reward"]["value"])
-            done = bool(result["done"])
-            error = None
+            obs = result.get("observation", {})
+            reward = float(result.get("reward", {}).get("value", 0))
+            done = bool(result.get("done", False))
 
             rewards.append(reward)
             steps_taken = step
@@ -220,35 +264,54 @@ def run_task(client: OpenAI, task_id: str) -> dict:
                 action=action_str,
                 reward=reward,
                 done=done,
-                error=error,
+                error=None,
             )
 
             if done:
                 break
 
-        grader = requests.get(f"{ENV_BASE_URL}/grader").json()
-        score = float(grader["score"])
-        success = score >= 0.5
+        # ✅ SAFE GRADER
+        try:
+            response = requests.get(f"{ENV_BASE_URL}/grader", timeout=5)
+            response.raise_for_status()
+            grader = response.json()
+            score = float(grader.get("score", 0))
+            success = score >= 0.5
+        except Exception as e:
+            print("GRADER ERROR:", str(e), flush=True)
+            score = 0
 
         return {
             "task_id": task_id,
             "score": score,
-            "grader": grader,
         }
 
     finally:
         log_end(success=success, steps=steps_taken, rewards=rewards)
 
+# ------------------ MAIN ------------------
 
 def main():
     if not HF_TOKEN:
         raise ValueError("HF_TOKEN environment variable is required")
 
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    # ✅ START SERVER
+    server_process = start_server()
 
-    for tid in TASK_IDS:
-        run_task(client, tid)
+    try:
+        # ✅ WAIT FOR SERVER
+        wait_for_server()
 
+        client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+
+        for tid in TASK_IDS:
+            run_task(client, tid)
+
+    finally:
+        # ✅ CLEANUP
+        server_process.terminate()
+
+# ------------------ ENTRY ------------------
 
 if __name__ == "__main__":
     main()
