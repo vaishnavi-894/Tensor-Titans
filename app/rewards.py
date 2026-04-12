@@ -61,6 +61,9 @@ def compute_reward(task: Dict[str, Any], state: EnvState, action: Action) -> Dic
         reward -= 0.02
         components["long_episode_penalty"] = -0.02
 
+    # Clamp reward to strict (0, 1) open interval for grader compliance
+    reward = max(0.01, min(0.99, reward))
+
     return {
         "value": reward,
         "components": components,

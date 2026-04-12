@@ -60,7 +60,7 @@ class SupportTicketTriageEnv:
             raise RuntimeError("Call reset() before step().")
 
         if self.state_obj.done:
-            return self._build_observation(), Reward(value=0.0, explanation="Episode already done."), True, {
+            return self._build_observation(), Reward(value=0.01, explanation="Episode already done."), True, {
                 "warning": "Episode already completed."
             }
 
@@ -98,6 +98,7 @@ class SupportTicketTriageEnv:
         reward_data = compute_reward(self.current_task, self.state_obj, action)
         reward = Reward(**reward_data)
         self.state_obj.cumulative_reward += reward.value
+        self.state_obj.cumulative_reward = max(0.01, min(0.99, self.state_obj.cumulative_reward))
 
         done = False
         info = {}
@@ -111,7 +112,7 @@ class SupportTicketTriageEnv:
         if done:
             self.state_obj.done = True
             grade = grade_task(self.current_task, self.state_obj)
-            self.state_obj.final_score = grade["score"]
+            self.state_obj.final_score = max(0.01, min(0.99, grade["score"]))
             info["grader"] = grade
 
         return self._build_observation(), reward, done, info
