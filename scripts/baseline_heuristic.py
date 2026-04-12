@@ -47,9 +47,13 @@ def run_task(task_id):
         if done:
             break
 
+    raw_score = final_info.get("grader", {}).get("score", 0.01)
+    # Clamp to strict (0, 1) open interval
+    clamped_score = max(0.01, min(0.99, raw_score))
+
     return {
         "task_id": task_id,
-        "final_score": final_info.get("grader", {}).get("score", 0.01),
+        "final_score": clamped_score,
         "grader": final_info.get("grader", {})
     }
 

@@ -276,6 +276,8 @@ def run_task(client: OpenAI, task_id: str) -> dict:
             response.raise_for_status()
             grader = response.json()
             score = float(grader.get("score", 0))
+            # Clamp to strict (0, 1) open interval
+            score = max(0.01, min(0.99, score))
             success = score >= 0.5
         except Exception as e:
             print("GRADER ERROR:", str(e), flush=True)
