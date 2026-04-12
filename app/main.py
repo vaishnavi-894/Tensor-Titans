@@ -79,7 +79,18 @@ def state():
 def grader():
     state_obj = ENV.state()
     task = TASKS[state_obj.task_id]
-    return grade_task(task, state_obj)
+    
+    grade_res = grade_task(task, state_obj)
+    score = float(grade_res["score"])
+    
+    # FIX: ensure strict range (0,1)
+    if score <= 0.0:
+        score = 0.01
+    elif score >= 1.0:
+        score = 0.99
+
+    grade_res["score"] = score
+    return grade_res
 
 @app.get("/baseline")
 def baseline():
