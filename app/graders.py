@@ -38,7 +38,8 @@ def grade_task(task: Dict[str, Any], state: EnvState) -> Dict[str, Any]:
     breakdown["escalation"] = 0.10 * escalation_score
     score += breakdown["escalation"]
 
-    score = max(0.0, min(1.0, score))
+    score = max(0.01, min(0.99, score))
+    
     return {
         "score": score,
         "breakdown": breakdown,
