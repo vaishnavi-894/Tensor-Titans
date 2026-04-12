@@ -233,7 +233,7 @@ def run_task(client: OpenAI, task_id: str) -> dict:
             obs = response.json()
         except Exception as e:
             print("RESET ERROR:", str(e), flush=True)
-            return {"task_id": task_id, "score": 0, "error": str(e)}
+            return {"task_id": task_id, "score": 0.01, "error": str(e)}
 
         for step in range(1, MAX_STEPS + 1):
             action = call_model(client, obs)
@@ -279,7 +279,7 @@ def run_task(client: OpenAI, task_id: str) -> dict:
             success = score >= 0.5
         except Exception as e:
             print("GRADER ERROR:", str(e), flush=True)
-            score = 0
+            score = 0.01
 
         return {
             "task_id": task_id,

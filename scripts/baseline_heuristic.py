@@ -49,7 +49,7 @@ def run_task(task_id):
 
     return {
         "task_id": task_id,
-        "final_score": final_info.get("grader", {}).get("score", 0.0),
+        "final_score": final_info.get("grader", {}).get("score", 0.01),
         "grader": final_info.get("grader", {})
     }
 
